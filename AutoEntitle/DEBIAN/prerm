@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ ! "$1" == "upgrade" ]; then
+    echo "[*] AutoEntitle: Removing..."
+    mv /usr/bin/dpkz /usr/bin/dpkg
+    rm /tmp/*AUTOENT*
+    echo "[*] AutoEntitle: Done :)"
+fi

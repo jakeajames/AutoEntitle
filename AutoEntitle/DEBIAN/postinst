@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [ "$1" == "triggered" ]; then
+    USR=$(find /usr/bin -not -type d -cmin -5)
+    for bin in $USR
+    do
+        if [ "$bin" == "/usr/bin/dpkg" ]; then
+            echo "[*] AutoEntitle: fixing dpkg..."
+            mv /usr/bin/dpkg /usr/bin/dpkz
+            cp /tmp/AUTOENTDPKG /usr/bin/dpkg
+        fi
+    done
+else
+    echo "[*] AutoEntitle: Installing..."
+    if [ -f /usr/bin/dpkz ]; then
+        echo "[*] AutoEntitle: Already installed!"
+    else
+        mv /usr/bin/dpkg /usr/bin/dpkz
+        cp /tmp/AUTOENTDPKG /usr/bin/dpkg
+    fi
+    echo "[*] AutoEntitle: Done :)"
+fi

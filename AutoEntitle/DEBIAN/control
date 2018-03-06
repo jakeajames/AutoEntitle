@@ -1,0 +1,9 @@
+Package: com.jakeashacks.autoent
+Name: AutoEntitle
+Version: 4.0
+Architecture: iphoneos-arm
+Description: Automatically entitles, signs, unstashes (if stashed) applications & binaries installed via Cydia in iOS 11. This package will allow installation of some unupdated packages such as Ext3nder Installer & radare. Run "autoentitle" via SSH to get list of options.
+Pre-Depends: firmware(>=11.0), com.jakeashacks.jtool
+Maintainer: Jake James <jakeashacks@gmail.com>
+Author: Jake James <jakeashacks@gmail.com>
+Section: System

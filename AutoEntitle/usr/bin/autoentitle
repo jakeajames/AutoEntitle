@@ -1,0 +1,405 @@
+IS_FAT() {
+    target=$1
+    unset ARCH
+    isfat=$( (jtool -h $target | grep "Fat binary") 2>&1 ); 
+
+    if [[ "$isfat" == *"Fat binary"* ]]; then
+        echo  -n "YES"
+    else
+        echo -n "NO"
+    fi
+}
+
+IS_SIGNED() {
+    target=$1
+    unset ARCH
+    issign=$( (jtool --sig $target) 2>&1 ); 
+
+    if [[ "$issign" == *"No Code Signing blob"* ]]; then
+        echo  -n "NO"
+    else
+        echo -n "YES"
+    fi
+}
+
+
+IS_MACHO() {
+    target=$1
+    export ARCH=arm64
+    ismacho=$( (jtool -h $target | grep "Mach-O") 2>&1 ); 
+
+    if [[ "$ismacho" == *"Mach-O"* ]]; then
+        echo  -n "YES"
+    else
+        echo -n "NO"
+    fi
+}
+
+THIN() {
+    target=$1
+    jtool -e arch -arch arm64 $target > /dev/null 2>&1
+    mv "$target.arch_arm64" $target
+}
+
+HAS_ENTS() {
+    target=$1
+    ents=$( (jtool --ent $target) 2>&1)
+    if [[ "$ents" == *"dict"* ]]; then
+        if [[ "$ents" == *"platform-application"* ]]; then
+             if [[ "$ents" == *"com.apple.private.skip-library-validation"* ]]; then
+                 echo -n "PLATFORM-SKIP"
+                 return 0
+             else
+                 echo -n "PLATFORM"
+                 return 0
+             fi
+        fi
+        if [[ "$ents" == *"com.apple.private.skip-library-validation"* ]]; then
+            echo -n "SKIP"
+        else
+            echo -n "YES"
+        fi
+    else
+        echo -n "NO"
+    fi
+}
+
+APP_HAS_ENTS() {
+    target=$1
+    ents=$( (jtool --ent $target) 2>&1)
+    if [[ "$ents" == *"dict"* ]]; then
+        if [[ "$ents" == *"com.apple.private.security.no-container"* ]]; then
+             if [[ "$ents" == *"com.apple.private.skip-library-validation"* ]]; then
+                 if [[ "$ents" == *"platform-application"* ]]; then
+                     echo -n "NO-C-SKIP-PLATFORM"
+                     return 0
+                 else
+                     echo -n "NO-C-SKIP"
+                     return 0
+                 fi
+             else
+                 if [[ "$ents" == *"platform-application"* ]]; then
+                     echo -n "NO-C-PLATFORM"
+                     return 0
+                 else
+                     echo -n "NO-C"
+                     return 0
+                 fi
+             fi
+        fi
+        if [[ "$ents" == *"com.apple.private.skip-library-validation"* ]]; then
+            if [[ "$ents" == *"platform-application"* ]]; then
+                echo -n "SKIP-PLATFORM"
+                return 0
+            else
+                echo -n "SKIP"
+                return 0
+            fi
+        fi
+        if [[ "$ents" == *"platform-application"* ]]; then
+             echo -n "PLATFORM"
+        else
+            echo -n "YES"
+        fi
+    else
+        echo -n "NO"
+    fi
+}
+
+UNSTASH() {
+    target=$(find $1 -not -type d -type l -cmin -5 | grep -v "include" | grep -v "standalone" | grep -v "/Applications$")
+    for bin in $target
+    do
+        if [[ "$(realpath $bin)" == "/var"* ]] || [[ "$(realpath $bin)" == "/private/var"* ]]; then #only stuff in /var needs unstashing
+            REALPATH=$(realpath $bin)
+            #unstashing symlinks doesn't make sense does it? 
+            if [ ! -L $REALPATH ] && [ "$(IS_MACHO $REALPATH)" == "YES" ]; then #also make sure we're unstashing machos
+               echo "[*] Unstasher: Unstashing $bin from $(realpath $bin)"
+               #swap symlink with actual bin
+               mv $REALPATH $bin
+               ln -sf $bin $REALPATH
+            fi
+        fi
+    done
+}
+
+FIX() {
+    if [ "$1" == "fix" ]; then
+        export USR=$(find /usr -not -type d -cmin -5 | grep -v "include" | grep -v "standalone")
+        export LIB=$(find /Library -not -type d -cmin -5)
+        export APPS=$(find /Applications -maxdepth 1 -cmin -5 | head -n 2 | grep -v "/Applications$")
+        export USR="$USR $LIB"
+    fi    
+
+    echo "[*] AutoEntitle: We got called..."
+    if [ "$1" == "fix" ]; then
+        UNSTASH /usr
+    fi
+
+    for bin in $USR
+    do
+        if [ "$bin" == "" ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        if [ "$bin" == "/" ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        if [ "$bin" == " " ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+
+        if [ "$(IS_MACHO $bin)" == "YES" ]; then
+            if [[ "$bin" == *"dylib" ]]; then
+                if [ "$(IS_SIGNED $bin)" == "NO" ]; then
+                    echo "[*] AutoEntitle: Processing $bin..."
+                    if [ "$(IS_FAT $bin)" == "YES" ]; then
+                        echo "[*] AutoEntitle: FAT binary, thinning..."
+                        THIN $bin
+                    fi
+                    echo "[*] AutoEntitle: Signing..."
+                    jtool --sign --inplace $bin > /dev/null 2>&1
+                fi
+                continue
+            fi
+
+            echo "[*] AutoEntitle: Processing $bin..."
+            if [ "$(IS_FAT $bin)" == "YES" ]; then
+                echo "[*] AutoEntitle: FAT binary, thinning..."
+                THIN $bin
+            fi
+
+            if [ "$(HAS_ENTS $bin)" == "NO" ]; then
+                echo "[*] AutoEntitle: Signing..."
+                jtool --ent -arch arm64 /bin/bash > /tmp/ENTS.xml
+                sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                jtool --sign --inplace --ent /tmp/ENTS.xml $bin > /dev/null 2>&1
+
+            elif [ "$(HAS_ENTS $bin)" == "YES" ]; then
+                 echo "[*] AutoEntitle: Saving entitlements & signing...."
+                 jtool --ent $bin > /tmp/ENTS.xml
+                sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                jtool --sign --inplace --ent /tmp/ENTS.xml $bin > /dev/null 2>&1
+
+            elif [ "$(HAS_ENTS $bin)" == "PLATFORM" ]; then
+                 echo "[*] AutoEntitle: Saving entitlements & signing...."
+                 jtool --ent $bin > /tmp/ENTS.xml
+                sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                jtool --sign --inplace --ent /tmp/ENTS.xml $bin > /dev/null 2>&1
+
+            elif [ "$(HAS_ENTS $bin)" == "SKIP" ]; then
+                 echo "[*] AutoEntitle: Saving entitlements & signing...."
+                 jtool --ent $bin > /tmp/ENTS.xml
+                 sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                 jtool --sign --inplace --ent /tmp/ENTS.xml $bin > /dev/null 2>&1
+
+            elif [ "$(HAS_ENTS $bin)" == "PLATFORM-SKIP" ]; then
+                 echo "[*] AutoEntitle: Already signed!"
+            fi
+
+            if [ "$1" == "fix" ]; then
+                echo "[*] AutoEntitle: Fixing permissions..."
+                if [[ "$(grep setuid $bin)" == *"matches" ]]; then
+                    chown root $bin
+                    chmod 6777 $bin
+                else
+                    chmod 0777 $bin
+                fi
+            fi
+        fi
+    done
+
+    for app in $APPS
+    do
+        if [ "$app" == "" ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        if [ "$app" == "/" ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        if [ "$app" == " " ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        if [ "$app" == "/Applications" ]; then
+            echo "[*] AutoEntitle: Not valid... exiting..."
+            exit 0;
+        fi
+        echo "[*] AutoEntitle: Processing app $app"
+        if [ "$1" == "fix" ]; then
+            UNSTASH $app
+        fi
+
+        for file in $(find $app/ -cmin -5 | grep -v "$app$")
+        do
+            if [ "$(IS_MACHO $file)" == "YES" ]; then
+                if [[ "$file" == *"dylib" ]]; then
+                    if [ "$(IS_SIGNED $file)" == "NO" ]; then
+                        echo "[*] AutoEntitle: Processing $bin..."
+                        if [ "$(IS_FAT $file)" == "YES" ]; then
+                            echo "[*] AutoEntitle: FAT binary, thinning..."
+                            THIN $bin
+                        fi
+                    echo "[*] AutoEntitle: Signing..."
+                    jtool --sign --inplace $bin > /dev/null 2>&1
+                fi
+                    continue
+                fi
+                echo "[*] AutoEntitle: Found app binary $file"
+                if [ "$(IS_FAT $file)" == "YES" ]; then
+                    echo "[*] AutoEntitle: FAT binary, thinning..."
+                    THIN $file
+                fi
+                   
+                jtool --ent -arch arm64 /Applications/Cydia.app/Cydia > /tmp/ENTS.xml
+                if [ "$(APP_HAS_ENTS $file)" == "NO" ]; then
+                    echo "[*] AutoEntitle: Signing..."
+                    jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "YES" ]; then
+                    echo "[*] AutoEntitle: Saving entitlements & signing..."
+                    jtool --ent $file > /tmp/ENTS.xml
+
+                    sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><key>com.apple.private.security.no-container<\/key><true\/><key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                    jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "NO-C" ]; then
+                    echo "[*] AutoEntitle: Saving entitlements & signing..."
+                    jtool --ent $file > /tmp/ENTS.xml
+
+                    sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                    jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "NO-C-SKIP" ]; then
+                    echo "[*] AutoEntitle: Saving entitlements & signing..."
+                    jtool --ent $file > /tmp/ENTS.xml
+
+                     sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                     jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "NO-C-PLATFORM" ]; then
+                    echo "[*] AutoEntitle: Saving entitlements & signing..."
+                    jtool --ent $file > /tmp/ENTS.xml
+
+                    sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                     jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "SKIP-PLATFORM" ]; then
+                    echo "[*] AutoEntitle: Saving entitlements & signing..."
+                    jtool --ent $file > /tmp/ENTS.xml
+
+                    sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>com.apple.private.security.no-container<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                     jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "SKIP" ]; then
+                     echo "[*] AutoEntitle: Saving entitlements & signing..."
+                     jtool --ent $file > /tmp/ENTS.xml
+
+                     sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>platform-application<\/key><true\/><key>com.apple.private.security.no-container<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                    jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "PLATFORM" ]; then
+                     echo "[*] AutoEntitle: Saving entitlements & signing..."
+                     jtool --ent $file > /tmp/ENTS.xml
+
+                     sed -i ':a;N;$!ba;s/<\/dict>\n<\/plist>/<key>com.apple.private.security.no-container<\/key><true\/><key>com.apple.private.skip-library-validation<\/key><true\/><\/dict>\n<\/plist>/g' /tmp/ENTS.xml
+                    jtool --sign --inplace --ent /tmp/ENTS.xml $file > /dev/null 2>&1
+
+                elif [ "$(APP_HAS_ENTS $file)" == "NO-C-SKIP-PLATFORM" ]; then
+                    echo "[*] AutoEntitle: Already signed!"
+                fi
+                if [ "$1" == "fix" ]; then
+                    echo "[*] AutoEntitle: Fixing permissions..."
+                    if [[ "$(grep setuid $file)" == *"matches" ]]; then
+                        chown root $file
+                        chmod 6777 $file
+                    else
+                        chmod 0777 $file
+                    fi
+                fi
+            fi
+        done
+    done
+    rm  /tmp/ENTS.xml
+}
+
+
+PRINT_USAGE() {
+    echo "Usage: "
+    echo "    autoentitle <argument>"
+    echo "Arguments: "
+    echo "    - getlist: get list of recently installed binaries. Those will be the ones autoentitle will sign"
+    echo "    - fix: entitle list of binaries"
+    echo "    - unstash <directory>: unstash recently installed binaries in a directory (10.3+; if any)"
+    echo "    - wait: INTERNAL option. Used by automatic-patching."
+    echo " Info: "
+    echo "     every patched binary will get platform-application & skip-library-validation"
+    echo "     every patched app will get platform-application, skip-library-validation & no-container"
+    echo "     no entitlements will be lost"
+    echo "     the 'fix' command will automatically unstash stashed binaries for you"
+    echo "     AutoEntitle will run twice when installing debs, at first it will patch the deb, then it will fix permissions & unstash after installation. Since the second run won't be displayed on screen due to techinal reasons, the logs will be saved at /tmp/AUTOENTLOG.log"
+}
+
+export PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/bin/X11:/usr/games:/bootstrap/usr/bin:/bootstrap/bin:/bootstrap/usr/sbin:/bootstrap/bin:/bootstrap/usr/local/bin:'
+
+if [ "$#" -eq 0 ] || ([ ! "$1" == "getlist" ] && [ ! "$1" == "fixup" ] && [ ! "$1" == "fix" ] && [ ! "$1" == "trigger" ] && [ ! "$1" == "untrigger" ] && [ ! "$1" == "unstash" ]  && [ ! "$1" == "wait" ]); then
+    PRINT_USAGE
+    exit 0
+fi
+
+if [ "$1" == "fixup" ]; then
+    if [ ! "$#" -eq 2 ]; then
+         PRINT_USAGE
+         exit 0
+    else
+        rm -rf /tmp/FIXUPDEB > /dev/null 2>&1
+        mkdir /tmp/FIXUPDEB
+        echo "[*] AutoEntitle: Extracting deb..."
+        dpkg-deb -R $2 /tmp/FIXUPDEB 
+        export USR=$(find /tmp/FIXUPDEB -not -type d | grep -v "/Applications")
+        export APPS=$(find /tmp/FIXUPDEB -maxdepth 2 -type d | grep "/Applications")
+        FIX fixup
+        echo "[*] AutoEntitle: Building new deb..."
+        dpkz -b /tmp/FIXUPDEB $2
+        rm -rf /tmp/FIXUPDEB > /dev/null 2>&1
+    fi
+fi
+
+if [ "$1" == "fix" ]; then
+    FIX fix
+fi
+
+if [ "$1" == "wait" ]; then
+    while [ ! -f "/Library/dpkg/lock" ] 
+    do
+        sleep 1
+    done
+    while [ "/Library/dpkg/lock" -nt "/Library/dpkg/status" ]
+    do
+        sleep 1
+    done
+    FIX fix > /tmp/AUTOENTLOG.log
+fi
+
+if [ "$1" == "trigger" ]; then
+    touch /var/mobile/Library/Preferences/autoentitle.enabled
+fi
+
+if [ "$1" == "untrigger" ]; then
+   rm /var/mobile/Library/Preferences/autoentitle.enabled
+fi
+
+if [ "$1" == "unstash" ]; then
+    if [ ! "$#" -eq 2 ]; then
+         PRINT_USAGE
+         exit 0
+    fi
+    UNSTASH $2
+fi
+
+rm /tmp/ENTS.xml > /dev/null 2>&1
+exit 0
