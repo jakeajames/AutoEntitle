@@ -4,6 +4,9 @@ if [ "$1" == "triggered" ]; then
     USR=$(find /usr/bin -not -type d -cmin -5)
     for bin in $USR
     do
+        if [ "$bin" == "/usr/bin/autoentitle" ]; then
+            exit 0
+        fi
         if [ "$bin" == "/usr/bin/dpkg" ]; then
             echo "[*] AutoEntitle: fixing dpkg..."
             mv /usr/bin/dpkg /usr/bin/dpkz
