@@ -52,12 +52,12 @@ main (int argc, char *argv[])
                 system("rm /Library/dpkg/lock; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
             }
             else
-                wait (&ret);
+                wait(&ret);
         }
     }
     else if (argc == 3)
     {
-        if (strcmp (argv[1], "-i") == 0)
+        if (strcmp(argv[1], "-i") == 0)
         {
             //one deb installed by user
             char cmdi[1024];
