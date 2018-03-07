@@ -4,15 +4,6 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 
-//this is not used on this build but I'm including on the code since people would see the binary has this and will freak out
-
-/*void
-dasys (const char *arg)
-{
-    char *const args[] = { "/bin/bash", "-c", arg, 0 };
-    execv ("/bin/bash", args);
-}*/
-
 int
 main (int argc, char *argv[])
 {
@@ -32,7 +23,7 @@ main (int argc, char *argv[])
             if (pd == 0 && pd != -1)
             {
                 system(cmd);
-                system("rm /Library/dpkg/lock; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
+                system("rm /Library/dpkg/lock > /dev/null 2>&1; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
             }
             else
                 wait(&ret);
@@ -45,27 +36,27 @@ main (int argc, char *argv[])
         if (strcmp(argv[4], "--unpack") == 0)
         {
             char cmdd[1024];
-            sprintf(cmdd, "/bin/bash /usr/bin/autoentitle fixup %s", argv[6]); //fix only that deb
+            sprintf(cmdd, "/bin/bash /usr/bin/autoentitle fixup '%s'", argv[6]); //fix only that deb
             if (pd == 0 && pd != -1)
             {
                 system(cmdd);
-                system("rm /Library/dpkg/lock; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
+                system("rm /Library/dpkg/lock > /dev/null 2>&1; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
             }
             else
-                wait(&ret);
+                wait (&ret);
         }
     }
     else if (argc == 3)
     {
-        if (strcmp(argv[1], "-i") == 0)
+        if (strcmp (argv[1], "-i") == 0)
         {
             //one deb installed by user
             char cmdi[1024];
-            sprintf(cmdi, "/bin/bash /usr/bin/autoentitle fixup %s", argv[2]); //fix only that deb
+            sprintf(cmdi, "/bin/bash /usr/bin/autoentitle fixup '%s'", argv[2]); //fix only that deb
             if (pd == 0 && pd != -1)
             {
                 system(cmdi);
-                system("rm /Library/dpkg/lock; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
+                system("rm /Library/dpkg/lock > /dev/null 2>&1; /bin/bash autoentitle wait &"); //wait for installation to finish on background and then run autoentitle again
             }
             else
                 wait(&ret);
