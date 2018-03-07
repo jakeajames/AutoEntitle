@@ -234,7 +234,7 @@ FIX() {
             UNSTASH $app
         fi
 
-        for file in $(find $app/ -cmin -5 | grep -v "$app$")
+        for file in $(find $app/ -cmin -5 | grep -v "app$")
         do
             if [ "$(IS_MACHO $file)" == "YES" ]; then
                 if [[ "$file" == *"dylib" ]]; then
@@ -346,7 +346,7 @@ PRINT_USAGE() {
 
 export PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/bin/X11:/usr/games:/bootstrap/usr/bin:/bootstrap/bin:/bootstrap/usr/sbin:/bootstrap/bin:/bootstrap/usr/local/bin:'
 
-if [ "$#" -eq 0 ] || ([ ! "$1" == "getlist" ] && [ ! "$1" == "fixup" ] && [ ! "$1" == "fix" ] && [ ! "$1" == "trigger" ] && [ ! "$1" == "untrigger" ] && [ ! "$1" == "unstash" ]  && [ ! "$1" == "wait" ]); then
+if [ "$#" -eq 0 ] || ([ ! "$1" == "getlist" ] && [ ! "$1" == "fixup" ] && [ ! "$1" == "fix" ] && [ ! "$1" == "unstash" ]  && [ ! "$1" == "wait" ]); then
     PRINT_USAGE
     exit 0
 fi
@@ -361,7 +361,7 @@ if [ "$1" == "fixup" ]; then
         echo "[*] AutoEntitle: Extracting deb..."
         dpkg-deb -R $2 /tmp/FIXUPDEB 
         export USR=$(find /tmp/FIXUPDEB -not -type d | grep -v "/Applications")
-        export APPS=$(find /tmp/FIXUPDEB -maxdepth 2 -type d | grep "/Applications")
+        export APPS=$(find /tmp/FIXUPDEB -maxdepth 2 -type d | grep "/Applications" | grep -v "/Applications$")
         FIX fixup
         echo "[*] AutoEntitle: Building new deb..."
         dpkz -b /tmp/FIXUPDEB $2
@@ -401,5 +401,7 @@ if [ "$1" == "unstash" ]; then
     UNSTASH $2
 fi
 
-rm /tmp/ENTS.xml > /dev/null 2>&1
+if [ -f /tmp/ENTS.xml ]; then
+    rm /tmp/ENTS.xml > /dev/null 2>&1
+fi
 exit 0

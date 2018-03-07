@@ -2,7 +2,12 @@
 
 if [ ! "$1" == "upgrade" ]; then
     echo "[*] AutoEntitle: Removing..."
-    mv /usr/bin/dpkz /usr/bin/dpkg
+    mv /var/AUTOENTREALDPKG /usr/bin/dpkg
+    rm /usr/bin/dpkz
+    rm /var/*AUTOENT*
     rm /tmp/*AUTOENT*
-    echo "[*] AutoEntitle: Done :)"
+else
+    echo "[*] AutoEntitle: Upgrading..."
+    mv /var/AUTOENTDPKG /usr/bin/dpkg
 fi
+echo "[*] AutoEntitle: Done :)"

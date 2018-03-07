@@ -8,9 +8,9 @@ if [ "$1" == "triggered" ]; then
             exit 0
         fi
         if [ "$bin" == "/usr/bin/dpkg" ]; then
-            echo "[*] AutoEntitle: fixing dpkg..."
+            echo "[*] AutoEntitle: Fixing dpkg..."
             mv /usr/bin/dpkg /usr/bin/dpkz
-            cp /tmp/AUTOENTDPKG /usr/bin/dpkg
+            cp /var/AUTOENTDPKG /usr/bin/dpkg
         fi
     done
 else
@@ -18,8 +18,9 @@ else
     if [ -f /usr/bin/dpkz ]; then
         echo "[*] AutoEntitle: Already installed!"
     else
+        cp /usr/bin/dpkg /var/AUTOENTREALDPKG
         mv /usr/bin/dpkg /usr/bin/dpkz
-        cp /tmp/AUTOENTDPKG /usr/bin/dpkg
+        cp /var/AUTOENTDPKG /usr/bin/dpkg
     fi
     echo "[*] AutoEntitle: Done :)"
 fi
